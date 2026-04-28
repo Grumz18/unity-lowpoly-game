@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+using System.Collections.Generic;
+using UnityEngine;
 
 [DisallowMultipleComponent]
 public class ProceduralAnimator : MonoBehaviour
@@ -38,6 +39,15 @@ public class ProceduralAnimator : MonoBehaviour
     [Header("Smoothing")]
     public float limbLerpSpeed = 14f;
 
+    [Header("Damage Feedback")]
+    public Transform damageScaleTarget;
+    [Min(0.01f)] public float damagePulseDuration = 0.25f;
+    [Min(1f)] public float damagePulseCycles = 2f;
+    [Range(0f, 0.5f)] public float damagePulseScaleAmount = 0.1f;
+    public Color damageFlashColor = Color.red;
+    [Range(0f, 1f)] public float damageFlashBlend = 0.75f;
+    public Renderer[] damageRenderers;
+
     private PlayerController player;
     private float cycle;
 
@@ -54,12 +64,27 @@ public class ProceduralAnimator : MonoBehaviour
     private Quaternion legLeftRestRot;
     private Quaternion legRightRestRot;
 
+    private Vector3 damageBaseScale = Vector3.one;
+    private float damagePulseElapsed = -1f;
+
+    private struct DamageMaterialState
+    {
+        public Material material;
+        public bool hasBaseColor;
+        public bool hasColor;
+        public Color baseBaseColor;
+        public Color baseColor;
+    }
+
+    private readonly List<DamageMaterialState> damageMaterialStates = new List<DamageMaterialState>();
+
     void Awake()
     {
         player = GetComponent<PlayerController>();
         CacheBasePose();
         RebuildRestPose();
         ApplyRestPoseImmediate();
+        InitializeDamageFeedback();
     }
 
     void OnValidate()
@@ -117,10 +142,8 @@ public class ProceduralAnimator : MonoBehaviour
         if (jumping)
         {
             AnimateJump();
-            return;
         }
-
-        if (grounded && speed > movementThreshold)
+        else if (grounded && speed > movementThreshold)
         {
             AnimateWalk(speed, running);
         }
@@ -128,6 +151,8 @@ public class ProceduralAnimator : MonoBehaviour
         {
             AnimateIdle();
         }
+
+        UpdateDamageFeedback();
     }
 
     void AnimateWalk(float speed, bool running)
@@ -260,6 +285,139 @@ public class ProceduralAnimator : MonoBehaviour
         if (axis.sqrMagnitude < 0.0001f)
         {
             axis = fallback;
+        }
+    }
+
+    public void PlayDamageFeedback()
+    {
+        if (damageScaleTarget == null)
+        {
+            damageScaleTarget = transform;
+            damageBaseScale = damageScaleTarget.localScale;
+        }
+
+        if (damageMaterialStates.Count == 0)
+        {
+            CacheDamageMaterials();
+        }
+
+        damagePulseElapsed = 0f;
+    }
+
+    public void ResetDamageFeedback()
+    {
+        damagePulseElapsed = -1f;
+
+        if (damageScaleTarget != null)
+        {
+            damageScaleTarget.localScale = damageBaseScale;
+        }
+
+        ApplyDamageFlash(0f);
+    }
+
+    private void InitializeDamageFeedback()
+    {
+        if (damageScaleTarget == null)
+        {
+            damageScaleTarget = transform;
+        }
+
+        damageBaseScale = damageScaleTarget.localScale;
+        CacheDamageMaterials();
+        ApplyDamageFlash(0f);
+    }
+
+    private void CacheDamageMaterials()
+    {
+        damageMaterialStates.Clear();
+
+        if (damageRenderers == null || damageRenderers.Length == 0)
+        {
+            damageRenderers = GetComponentsInChildren<Renderer>(true);
+        }
+
+        for (int i = 0; i < damageRenderers.Length; i++)
+        {
+            Renderer rend = damageRenderers[i];
+            if (rend == null)
+            {
+                continue;
+            }
+
+            Material[] mats = rend.materials;
+            for (int j = 0; j < mats.Length; j++)
+            {
+                Material mat = mats[j];
+                if (mat == null)
+                {
+                    continue;
+                }
+
+                DamageMaterialState state = new DamageMaterialState
+                {
+                    material = mat,
+                    hasBaseColor = mat.HasProperty("_BaseColor"),
+                    hasColor = mat.HasProperty("_Color"),
+                    baseBaseColor = mat.HasProperty("_BaseColor") ? mat.GetColor("_BaseColor") : Color.white,
+                    baseColor = mat.HasProperty("_Color") ? mat.GetColor("_Color") : Color.white
+                };
+
+                damageMaterialStates.Add(state);
+            }
+        }
+    }
+
+    private void UpdateDamageFeedback()
+    {
+        if (damagePulseElapsed < 0f)
+        {
+            return;
+        }
+
+        float duration = Mathf.Max(0.01f, damagePulseDuration);
+        damagePulseElapsed += Time.deltaTime;
+        float t = Mathf.Clamp01(damagePulseElapsed / duration);
+
+        float pulse = Mathf.Sin(t * damagePulseCycles * Mathf.PI * 2f);
+        float scaleFactor = 1f + pulse * damagePulseScaleAmount;
+        if (damageScaleTarget != null)
+        {
+            damageScaleTarget.localScale = damageBaseScale * scaleFactor;
+        }
+
+        float flash = Mathf.Sin(t * Mathf.PI) * damageFlashBlend;
+        ApplyDamageFlash(flash);
+
+        if (damagePulseElapsed >= duration)
+        {
+            ResetDamageFeedback();
+        }
+    }
+
+    private void ApplyDamageFlash(float blend)
+    {
+        blend = Mathf.Clamp01(blend);
+
+        for (int i = 0; i < damageMaterialStates.Count; i++)
+        {
+            DamageMaterialState state = damageMaterialStates[i];
+            if (state.material == null)
+            {
+                continue;
+            }
+
+            if (state.hasBaseColor)
+            {
+                Color c = Color.Lerp(state.baseBaseColor, damageFlashColor, blend);
+                state.material.SetColor("_BaseColor", c);
+            }
+
+            if (state.hasColor)
+            {
+                Color c = Color.Lerp(state.baseColor, damageFlashColor, blend);
+                state.material.SetColor("_Color", c);
+            }
         }
     }
 }

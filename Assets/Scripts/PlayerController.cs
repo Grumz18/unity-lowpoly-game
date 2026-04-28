@@ -157,6 +157,18 @@ public class PlayerController : MonoBehaviour
 
     void OnControllerColliderHit(ControllerColliderHit hit)
     {
+        DamageZone damageZone = hit.collider.GetComponentInParent<DamageZone>();
+        if (damageZone != null)
+        {
+            damageZone.TryApplyDamage(gameObject);
+        }
+
+        InstantTripleDamageZone instantTripleDamageZone = hit.collider.GetComponentInParent<InstantTripleDamageZone>();
+        if (instantTripleDamageZone != null)
+        {
+            instantTripleDamageZone.TryApplyDamage(gameObject);
+        }
+
         LadderZone ladder = hit.collider.GetComponentInParent<LadderZone>();
         if (ladder != null)
         {
@@ -230,6 +242,12 @@ public class PlayerController : MonoBehaviour
         else if (isGrounded && carrierCandidate != null)
         {
             AttachToCarrier(carrierCandidate);
+        }
+        else if (isGrounded && (attachedPlatform != null || attachedCarrier != null))
+        {
+            // Keep previous attachment for one or more frames if contact callbacks are intermittent.
+            // This prevents jitter on vertically moving platforms.
+            return;
         }
         else
         {

@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using UnityEngine;
 
+[DefaultExecutionOrder(-100)]
 [DisallowMultipleComponent]
 [RequireComponent(typeof(Collider))]
 public class PressureButtonMover : MonoBehaviour
